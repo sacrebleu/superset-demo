@@ -1,17 +1,17 @@
-data aws_region deployment_region {
+data "aws_region" "deployment_region" {
   name = local.region
 }
 
-data aws_availability_zones available {}
+data "aws_availability_zones" "available" {}
 
-data aws_caller_identity current {}
+data "aws_caller_identity" "current" {}
 
 locals {
   name = "Superset-demo"
   tags = {
-    app = Superset
+    app         = Superset
     provisioner = Terraform
-    env = demo
+    env         = demo
   }
 
   cluster_version = "1.29"

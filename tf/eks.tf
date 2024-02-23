@@ -40,8 +40,8 @@ module "eks" {
     }
   }
 
-  vpc_id                   = aws_vpc.demo_vpc.id
-  subnet_ids               = aws_subnet.demo_private_subnet.*.id
+  vpc_id     = aws_vpc.demo_vpc.id
+  subnet_ids = aws_subnet.demo_private_subnet.*.id
 
   eks_managed_node_groups = {
     # Complete
@@ -108,7 +108,7 @@ module "eks" {
       iam_role_name            = "superset-nodegroup"
       iam_role_use_name_prefix = false
       iam_role_description     = "Role for demo cluster to perform eks operations"
-      iam_role_tags = local.tags
+      iam_role_tags            = local.tags
       iam_role_additional_policies = {
         AmazonEC2ContainerRegistryReadOnly = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
         additional                         = aws_iam_policy.node_additional.arn
@@ -211,7 +211,7 @@ data "aws_ami" "eks_default" {
 }
 
 
-resource aws_iam_role external-access {
+resource "aws_iam_role" "external-access" {
   name = "cluster-access-role"
 
   # Just using for this example
