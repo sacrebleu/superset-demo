@@ -9,9 +9,9 @@ data "aws_caller_identity" "current" {}
 locals {
   name = "Superset-demo"
   tags = {
-    app         = Superset
-    provisioner = Terraform
-    env         = demo
+    app         = "Superset"
+    provisioner = "Terraform"
+    env         = "demo"
   }
 
   cluster_version = "1.29"
