@@ -6,13 +6,11 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
 
+  create_iam_role                = true
   cluster_name                   = local.name
   cluster_version                = local.cluster_version
+  iam_role_name = "superset_custer_role"
   cluster_endpoint_public_access = true
-
-  # IPV6
-  cluster_ip_family          = "ipv6"
-  create_cni_ipv6_iam_policy = true
 
   enable_cluster_creator_admin_permissions = true
 
@@ -41,7 +39,7 @@ module "eks" {
   }
 
   vpc_id     = aws_vpc.demo_vpc.id
-  subnet_ids = aws_subnet.demo_private_subnet.*.id
+  subnet_ids = [for o in aws_subnet.demo_private_subnet : o.id]
 
   eks_managed_node_groups = {
     # Complete
@@ -49,7 +47,7 @@ module "eks" {
       name            = "demo-superset-nodegroup"
       use_name_prefix = true
 
-      subnet_ids = aws_subnet.demo_private_subnet.*.id
+      subnet_ids = [for o in aws_subnet.demo_private_subnet : o.id]
 
       min_size     = 1
       max_size     = 2
@@ -65,14 +63,6 @@ module "eks" {
         GithubRepo = "terraform-aws-eks"
         GithubOrg  = "terraform-aws-modules"
       }
-
-      taints = [
-        {
-          key    = "dedicated"
-          value  = "gpuGroup"
-          effect = "NO_SCHEDULE"
-        }
-      ]
 
       update_config = {
         max_unavailable_percentage = 33 # or set `max_unavailable`
@@ -104,57 +94,44 @@ module "eks" {
         instance_metadata_tags      = "disabled"
       }
 
-      create_iam_role          = true
-      iam_role_name            = "superset-nodegroup"
-      iam_role_use_name_prefix = false
-      iam_role_description     = "Role for demo cluster to perform eks operations"
-      iam_role_tags            = local.tags
-      iam_role_additional_policies = {
-        AmazonEC2ContainerRegistryReadOnly = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-        additional                         = aws_iam_policy.node_additional.arn
-      }
-
+      iam_role_name            = "athena_access_role"
       tags = local.tags
     }
   }
 
   access_entries = {
-    # Example of adding multiple policies to a single access entry
-    permit-access = {
-      kubernetes_groups = []
-      principal_arn     = aws_iam_role.external-access.arn
+#    # Example of adding multiple policies to a single access entry
+#    permit-access = {
+#      kubernetes_groups = []
+#      principal_arn     = data.aws_caller_identity.current.arn
+#
+#      policy_associations = {
+#        cluster-management = {
+#          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+#          access_scope = {
+#            type = "cluster"
+#          }
+#        }
+#      }
+#    }
 
-      policy_associations = {
-        ex-one = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
-          access_scope = {
-            namespaces = ["default"]
-            type       = "namespace"
-          }
-        }
-        ex-two = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
-          access_scope = {
-            type = "cluster"
-          }
-        }
-      }
-    }
+#    root-access = {
+#      kubernetes_groups = []
+#      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+#
+#      policy_associations = {
+#        cluster-management = {
+#          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+#          access_scope = {
+#            type = "cluster"
+#          }
+#        }
+#      }
+#    }
   }
 
   tags = local.tags
 }
-
-#
-#module "key_pair" {
-#  source  = "terraform-aws-modules/key-pair/aws"
-#  version = "~> 2.0"
-#
-#  key_name_prefix    = local.name
-#  create_private_key = true
-#
-#  tags = local.tags
-#}
 
 resource "aws_security_group" "remote_access" {
   name_prefix = "${local.name}-remote-access"
@@ -209,7 +186,6 @@ data "aws_ami" "eks_default" {
     values = ["amazon-eks-node-${local.cluster_version}-v*"]
   }
 }
-
 
 resource "aws_iam_role" "external-access" {
   name = "cluster-access-role"

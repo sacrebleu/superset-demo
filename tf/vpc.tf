@@ -4,8 +4,6 @@
 // should give a base platform for infrastructure build out
 resource aws_vpc demo_vpc {
   cidr_block = var.vpc_cidr_range // class C should be ample
-  region = data.aws_region.deployment_region.name
-
   tags = local.tags
 }
 
@@ -15,10 +13,10 @@ resource aws_subnet demo_public_subnet {
   vpc_id = aws_vpc.demo_vpc.id
 
   map_public_ip_on_launch = true
-  cidr_block = each.value
-  availability_zone_id = each.key
+  cidr_block = each.value.cidr
+  availability_zone_id = each.value.az
 
-  tags = merge(local.tags, { type = public })
+  tags = merge(local.tags, { type = "public" })
 }
 
 // create the private subnets
@@ -27,10 +25,10 @@ resource aws_subnet demo_private_subnet {
   vpc_id = aws_vpc.demo_vpc.id
 
   map_public_ip_on_launch = false
-  cidr_block = each.value
-  availability_zone_id = each.key
+  cidr_block = each.value.cidr
+  availability_zone_id = each.value.az
 
-  tags = merge(local.tags, { type = private })
+  tags = merge(local.tags, { type = "private" })
 }
 
 // internet gateway so we can actually reach the public internet
@@ -59,14 +57,13 @@ resource aws_route_table_association internet_routing {
 
 // private side
 resource aws_eip nat_eip {
-  vpc        = true
   depends_on = [aws_internet_gateway.internet_gateway]
 }
 
 // single nat gateway
 resource aws_nat_gateway nat {
   allocation_id = aws_eip.nat_eip.id
-  subnet_id     = element(aws_subnet.demo_public_subnet.*.id, 0)
+  subnet_id     = aws_subnet.demo_public_subnet["public-1"].id
   depends_on    = [aws_internet_gateway.internet_gateway]
   tags = merge(local.tags, {name = "project nat gateway"})
 }
