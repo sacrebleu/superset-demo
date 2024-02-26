@@ -75,6 +75,7 @@ resource aws_route_table private_routes {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_nat_gateway.nat.id
   }
+
   tags = merge(local.tags, { name = "demo private route table"})
 }
 // and associate it with the private subnets

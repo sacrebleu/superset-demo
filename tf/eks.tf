@@ -6,13 +6,17 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
 
+  enable_irsa                    = true
   create_iam_role                = true
+
   cluster_name                   = local.name
   cluster_version                = local.cluster_version
-  iam_role_name = "superset_custer_role"
+  iam_role_name                  = "superset_cluster_role"
   cluster_endpoint_public_access = true
 
   enable_cluster_creator_admin_permissions = true
+
+  kms_key_service_users = []
 
   # Enable EFA support by adding necessary security group rules
   # to the shared node security group
@@ -35,6 +39,12 @@ module "eks" {
           WARM_PREFIX_TARGET       = "1"
         }
       })
+    }
+    aws-ebs-csi-driver = {
+      most_recent = true
+    }
+    eks-pod-identity-agent = {
+      most_recent = true
     }
   }
 
@@ -94,40 +104,14 @@ module "eks" {
         instance_metadata_tags      = "disabled"
       }
 
-      iam_role_name            = "athena_access_role"
+      iam_role_name            = "superset_nodegroup_role"
+      iam_role_additional_policies = {
+        EBCCSIPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+      }
+
       tags = local.tags
     }
-  }
 
-  access_entries = {
-#    # Example of adding multiple policies to a single access entry
-#    permit-access = {
-#      kubernetes_groups = []
-#      principal_arn     = data.aws_caller_identity.current.arn
-#
-#      policy_associations = {
-#        cluster-management = {
-#          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-#          access_scope = {
-#            type = "cluster"
-#          }
-#        }
-#      }
-#    }
-
-#    root-access = {
-#      kubernetes_groups = []
-#      principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-#
-#      policy_associations = {
-#        cluster-management = {
-#          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-#          access_scope = {
-#            type = "cluster"
-#          }
-#        }
-#      }
-#    }
   }
 
   tags = local.tags
@@ -157,26 +141,6 @@ resource "aws_security_group" "remote_access" {
   tags = merge(local.tags, { Name = "${local.name}-remote" })
 }
 
-resource "aws_iam_policy" "node_additional" {
-  name        = "${local.name}-additional"
-  description = "Example usage of node additional policy"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "ec2:Describe*",
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      },
-    ]
-  })
-
-  tags = local.tags
-}
-
 data "aws_ami" "eks_default" {
   most_recent = true
   owners      = ["amazon"]
@@ -185,25 +149,4 @@ data "aws_ami" "eks_default" {
     name   = "name"
     values = ["amazon-eks-node-${local.cluster_version}-v*"]
   }
-}
-
-resource "aws_iam_role" "external-access" {
-  name = "cluster-access-role"
-
-  # Just using for this example
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Sid    = "Example"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      },
-    ]
-  })
-
-  tags = local.tags
 }

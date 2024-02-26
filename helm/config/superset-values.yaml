@@ -1,0 +1,41 @@
+serviceAccountName: superset-user
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::${account_id}:role/${rolename}
+
+# secret key - necessary for initialisation, it has been removed because it is sensitive
+# so rerunning this will break superset :)
+configOverrides:
+  secret: |
+    SECRET_KEY = '<expunged>'
+
+# ensure packages are installed that permit superset to communicate to athena
+bootstrapScript: |
+  #!/bin/bash
+  pip install pyathena[pandas] \
+  PyAthenaJDBC &&\
+  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
+
+# specify connection strings for athena here
+extraConfigs:
+   import_datasources.yaml: |
+      databases:
+        - database_name: lottery_data
+          sqlalchemy_uri: awsathena+rest://athena.eu-west-1.amazonaws.com/superset-demo-data?s3_staging_dir=s3://superset-demo-sacrebleu-data/output/staging
+          extra: "{}"
+
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  annotations:
+    kubernetes.io/tls-acme: "true"
+    ## Extend timeout to allow long running queries.
+    # nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  path: /
+  pathType: ImplementationSpecific
+  hosts:
+    - superset.local
+    - a3d4b385a10d44779960e6d660eed643-1212557.eu-west-1.elb.amazonaws.com
