@@ -182,6 +182,20 @@ Result: all lotteries were run during the week (specifically on Tuesdays and Fri
 
 On the statistics themselves; ball 1, ball 5 and the mega ball all seem to display sample curves that seem suspicious at first glance.  
 
-Ball 1 could be read as a normal distribution that just happens to be skewed very heavily towards the lower end of the scale but ball 5 on the other hand has two distinct peaks - which seems anomalous in the context of the normal curve I'd expect.  
+Ball 1 could be interpreted as a normal distribution that just happens to be skewed very heavily towards the lower end of the scale:
 
-The power ball is roughly twice as likely to be 20 or less than it is to be 21 or above.  Suspicious, though it could also be due to changes in the structure of the lottery as time progressed i.e. the megaball was expanded, upper numbers were extended etc.  Perhaps the original powerball 
+![image: Ball 1 distribution](./images/ball-1-distribution.jpg "Ball 1 number distribution")
+
+but ball 5 on the other hand has two distinct peaks - which seems anomalous in the context of the normal curve I'd expect. 
+
+![image: Ball 5 distribution](./images/ball-5-distribution.jpg "Ball 5 number distribution")
+
+Even more strangely - the power ball is roughly twice as likely to be 20 or less than it is to be 21 or above.  
+
+![image: Mega Ball distribution](./images/mega_ball.jpg "Mega Ball number distribution")
+
+Finally, there's a noticeable taper towards the frequency of the upper numbers when all the balls are investigated simultaneously, with balls of value > 56 being noticeably under-represented in the overall dataset
+
+![image: Winning Number Frequency Distribution](./images/winning-number-freqs.jpg "Winning ball number distribution")
+
+It would be very interesting to see the result distributions for the data in the order of ball drawing, rather than sorted from smallest to largest as the dataset is currently sorted.  Perhaps there is some sort of bias which would be explained from that that is obscure from this ordered data.
