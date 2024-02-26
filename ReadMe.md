@@ -1,11 +1,12 @@
 # Superset Investigation of NY Powerball Lottery numbers
 #### Author: Sacrebleu, 2024
 
-### Prerequisites
+#### Prerequisites
 
 1. Terraform 1.7.x
 2. git
 3. awscli
+4. kubectl
 
 #### Tl;Dr How to run
 
@@ -14,14 +15,14 @@
     $ export AWS_ACCESS_KEY_ID=<access key>
     $ export AWS_SECRET_ACCESS_KEY=<secret key>
 
-###### Initial Infrastructure Build
+###### Initial Infrastructure Build - VPC, IAM, EKS cluster, Athena workspace and Glue data catalog
 
     $ cd ./tf
     $ terraform init
     $ terraform plan -out plan.out 
     $ terraform apply -plan plan.out
 
-###### Helm application provisioning
+###### Helm application provisioning and IAM role for superset service account
 
 some values need to be set as locals e.g the cluster name and the oidc provider.  These could be derived with more work.
 
@@ -34,12 +35,14 @@ some values need to be set as locals e.g the cluster name and the oidc provider.
 
 Some manual configuration was necessary.
 
-1.  There is a chicken and egg problem on the IAM roles for the superset user that I didn't have time to properly solve - namely, the kms key used for data encryption and decryption is created at eks cluster time, but the IAM role for the user is created as part of the helm setup.  It would probably be better to do IAM prior to infra build but this was a problem that emerged while I was working on the demo and I couldn't devote the time to go back and rearrange everything.  Thus, the KMS key policy needs manual amending to permit the superset athena role to make use of it and a reapplication of terraform will remove the policy block that grants the superuser role access to the relevant kms key[TODO]
+1.  There is a chicken and egg problem on the IAM roles for the superset user that I didn't have time to properly solve - namely, the kms key used for data encryption and decryption is created at eks cluster time, but the IAM role for the user is created as part of the helm setup.  It would probably be better to do IAM prior to infra build but this was a problem that emerged while I was working on the demo and I couldn't devote the time to go back and rearrange everything.  Thus, the KMS key policy needs manual amending to permit the superset athena role to make use of it and a reapplication of terraform will remove the policy block that grants the superuser role access to the relevant kms key
+2. Superset required a custom secret that was generated with openssl rand 16 -base64
+3. A superset user was created alongside the admin user
+4. superset datasets and an aurora view were created manually
 
 #### Superset Configuration
 
-The initial data table is based on the csv file upload.  However, I created some derived fields which were then complex to visualise.  I took the decision to create
-a separate view for the combined winning ball numbers:
+The initial data table is based on the csv file upload.  However, I created some derived fields which were then complex to visualise.  I took the decision to create a separate view for the combined winning ball numbers:
 
 
     CREATE OR REPLACE VIEW lottery_winning_numbers_merged AS
@@ -56,11 +59,55 @@ a separate view for the combined winning ball numbers:
 this leverages sql to provide a unified list of numbers which are then more amenable
 to counting, placing into histograms etcetera.
 
-### Statistics of the NY Lottery
+---
+
+## Design decisions
+
+#### 1. Wide-ranging roles were given to the project provisioning user
+
+In a normal environment, I would have either used an IAM boundary policy or spent  more time locking down the roles for the terraform user, but I am not familiar enough with Glue and Athena to guess what roles will be needed and time is short.  Therefore I have in general used the AWS provisioned roles for service users where I could, and inline IAM policies elsewhere.  All are allocated via a user-group for ease of management
+
+#### 2. EKS as a platform
+
+I chose EKS because I have good experience with it in my day to day.  In the guise of what is being done here it is easy to reason about, there is limited use of more complex Kubernetes concepts, most of this project is Deployments, Ingresses etcetera.  EKS gives me a fast, responsive platform with rich tooling that I can use to investigate and debug issues; I am comfortable with it as my day-to-day environment.
+
+#### 3. Helm is provisioned via terraform rather than argocd
+
+Given the nature of the task, I took the decision to directly provision superset into the cluster with the terraform helm provider.  In general I'd prefer the cluster was running argocd so that I could use something like the terraform argo provider and defineargo apps that way.  This is good enough for a play system and gives a faster turn-around.
+
+#### 4. File upload via terraform
+
+Again, a real-world system would have some sort of data transform pipeline for feeding data - storing lottering numbers as a string array is not ideal.  I played with the idea of transforming the data before upload, but it wasn't clear whether that was permitted within the scope of the exercise and it would be quick to do if it became necessary.  Superset has transform functions which seem adequate on top of athena.  It's a pragmatic solution and it works well enough within the scope of the demo
+
+###### 5. IAM roles should be provisioned prior to build-out
+
+In an ideal world I would have a good overview of what roles were necessary and prune out those that were not.  Unfortunately, some of these services [Glue, Athena] are new to me so I'm not familiar with their required minimum credential sets.  Where possible.
+
+I've retroactively gone back to prune down iam permissions etc.
+
+###### 6. Use of Nginx Ingress
+
+I elected to use the NginX ingress controller primarily because it provides a reliable manner to map k8s services to a classic loadbalancer (which is what is used in this case).  I use Ingresses in my day to day role and am comfortable enough with them to troubleshoot them if there are issues
+
+###### 7. Postgresql should be in RDS, Redis should be in Elasticache
+
+I don't like running stateful data stores in kubernetes - even with PVC backing and regional topology annotations. It makes more sense to me to keep data outside the cluster where possible, so I would prefer to put Postgresql and Redis into external services.  However, that is beyond the scope of this exercise and what is provided here is good enough for the small datasets in use.
+
+#### Meditations
+
+1. superset configuration required an enormous amount of trial and error; the internet is full of bad or subtly wrong config suggestions.  What worked was a service account using irsa with the necessary permissions and providing NO FURTHER GUIDANCE to the superset system about how to connect; boto3 used the assumed role and was able (finally) to connect.  In retrospect it's obvious but it was a journey of several hours to land on a working configuration.
+
+2. Being unfamiliar with superset, it was frustrating to try to work out how to display data in the way I wanted to.  I think of things like lottery ball picks in terms of the basic statistics I know, so to me histograms and gaussian curves make sense.  However, visualising them took some work, it was only late in the demo that I worked out that bar charts could with some work be configured to behave like histograms.  The 'Winning number frequency chart' demonstrates this.
+
+----
+
+## Results
+
+#### Statistics of the NY Lottery Dataset
 
 ###### 1: Select top 5 common winning numbers
 
-query: 
+query:
 
     select num, count(num) as freq
     from lottery_winning_numbers_merged
@@ -85,12 +132,12 @@ query:
     from lottery_numbers
 
 result:
-    
+
     1.992948435434112
 
 ###### 3: Calculate the top 5 mega ball results
 
-query: 
+query:
 
     select count(mega_ball) as cnt, mega_ball
     from lottery_numbers
@@ -131,41 +178,10 @@ weekend query:
 
 Result: all lotteries were run during the week (specifically on Tuesdays and Fridays)
 
+#### Some interesting patterns I noticed
 
-### Design decisions
+On the statistics themselves; ball 1, ball 5 and the mega ball all seem to display sample curves that seem suspicious at first glance.  
 
-###### Wide-ranging roles were given to the project provisioning user
+Ball 1 could be read as a normal distribution that just happens to be skewed very heavily towards the lower end of the scale but ball 5 on the other hand has two distinct peaks - which seems anomalous in the context of the normal curve I'd expect.  
 
-In a normal environment, I would have either used an IAM boundary policy or spent
-more time locking down the roles for the terraform user, but I am not familiar enough
-with Glue and Athena to guess what roles will be needed and time is short.  Therefore
-I have in general used the AWS provisioned roles for service users where I could,
-and inline IAM policies elsewhere.  All are allocated via a user-group for ease of management
-
-###### Helm is provisioned via terraform rather than argocd
-
-Given the nature of the task, I took the decision to directly provision superset into
-the cluster with the terraform helm provider.  In general I'd prefer the cluster was
-running argocd so that I could use something like the terraform argo provider and defineargo apps that way.  This is good enough for a play system and gives a faster turn-around.
-
-###### File upload via terraform
-
-Again, a real-world system would have some sort of data transform pipeline for feeding data - storing lottering numbers as a string array is not ideal.  I played with the idea of transforming the data before upload, but it wasn't clear whether that was
-permitted within the scope of the exercise and it would be quick to do if it became
-necessary.  Superset has transform functions which seem adequate on top of athena.
-
-###### IAM roles should be provisioned prior to build-out
-
-In an ideal world I would have a good overview of what roles were necessary and prune
-out those that were not.  Unfortunately, some of these services [Glue, Athena] are new to me so I'm not familiar with their required minimum credential sets.  Where possible.
-
-I've retroactively gone back to prune down iam permissions etc.
-
-###### Use of Nginx Ingress
-
-I elected to use the NginX ingress controller primarily because it provides a reliable
-manner to map k8s services to a classic loadbalancer (which is what is used in this case).
-
-#### Meditations
-
-1. superset configuration required an enormous amount of trial and error; the internet is full of bad or subtly wrong config suggestions.  What worked was a service account using irsa with the necessary permissions and providing NO FURTHER GUIDANCE to the superset system about how to connect; boto3 used the assumed role and was able (finally) to connect.  In retrospect it's obvious but it was a journey of several hours to land on a working configuration.
+The power ball is roughly twice as likely to be 20 or less than it is to be 21 or above.  Suspicious, though it could also be due to changes in the structure of the lottery as time progressed i.e. the megaball was expanded, upper numbers were extended etc.  Perhaps the original powerball 
