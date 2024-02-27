@@ -12,7 +12,6 @@ resource "null_resource" "kubectl" {
   }
 }
 
-
 resource helm_release nginx-ingress-controller {
   name = "ingress-nginx"
   repository = "https://kubernetes.github.io/ingress-nginx"
@@ -24,6 +23,9 @@ resource helm_release nginx-ingress-controller {
   depends_on = [null_resource.kubectl]
 }
 
+data aws_iam_role athena_access_role {
+  name = "superset_athena_access_role"
+}
 
 resource "helm_release" "superset" {
   name       = "superset"
@@ -36,7 +38,7 @@ resource "helm_release" "superset" {
     templatefile("${path.module}/config/superset-values.yaml",
       {
         account_id = data.aws_caller_identity.current.account_id,
-        rolename = aws_iam_role.athena_access_role.name
+        rolename = data.aws_iam_role.athena_access_role.name
       })
   ]
 

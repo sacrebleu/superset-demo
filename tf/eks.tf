@@ -16,7 +16,14 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
-  kms_key_service_users = []
+  create_kms_key = false
+
+  cluster_encryption_config = {
+    provider_key_arn = aws_kms_key.cluster_key.arn
+    resources = [
+      "secrets"
+    ]
+  }
 
   # Enable EFA support by adding necessary security group rules
   # to the shared node security group
@@ -60,15 +67,15 @@ module "eks" {
       subnet_ids = [for o in aws_subnet.demo_private_subnet : o.id]
 
       min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 3
+      desired_size = 3
 
       ami_id                     = data.aws_ami.eks_default.image_id
       enable_bootstrap_user_data = true
 
       capacity_type        = "SPOT"
       force_update_version = true
-      instance_types       = ["t3a.medium"]
+      instance_types       = ["t3a.medium", "t3.medium", "t2.medium"]
       labels = {
         GithubRepo = "terraform-aws-eks"
         GithubOrg  = "terraform-aws-modules"

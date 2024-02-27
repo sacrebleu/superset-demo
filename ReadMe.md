@@ -24,7 +24,7 @@
 
 ###### Helm application provisioning and IAM role for superset service account
 
-some values need to be set as locals e.g the cluster name and the oidc provider.  These could be derived with more work.
+Some values need to be set as locals e.g the cluster name and the oidc provider.  These could be derived with more work.
 
     $ cd ./helm
     $ terraform init
@@ -35,12 +35,16 @@ some values need to be set as locals e.g the cluster name and the oidc provider.
 
 Some manual configuration was necessary.
 
-1.  There is a chicken and egg problem on the IAM roles for the superset user that I didn't have time to properly solve - namely, the kms key used for data encryption and decryption is created at eks cluster time, but the IAM role for the user is created as part of the helm setup.  It would probably be better to do IAM prior to infra build but this was a problem that emerged while I was working on the demo and I couldn't devote the time to go back and rearrange everything.  Thus, the KMS key policy needs manual amending to permit the superset athena role to make use of it and a reapplication of terraform will remove the policy block that grants the superuser role access to the relevant kms key
-2. Superset required a custom secret that was generated with openssl rand 16 -base64
-3. A superset user was created alongside the admin user
-4. superset datasets and an aurora view were created manually
+1.  There is a chicken and egg problem on the IAM roles for the superset user that I didn't have time to properly solve - namely, the kms key used for data encryption and decryption is created at eks cluster time, but the IAM role for the user is created as part of the helm setup.  It would probably be better to do IAM prior to infrastructure build but given that this was a problem that emerged while I was working on the demo, I didn't feel it was worth the time to go back and rearrange everything; the existing system is good enough for a POC.  
 
-#### Superset Configuration
+    Thus, the KMS key policy needs manual amendment to permit the superset athena role to make use of it and a reapplication of terraform will remove the policy block that grants the superuser role access to the relevant kms key.
+
+2. Superset required a custom secret that was generated with openssl rand 16 -base64.  This would be more useful if it were generated automatically, but there would be a chance that it could be accidentally altered during a run; superset has a defined secret rotation process that this would then violate.
+
+3. A superset user was manaully  created alongside the admin user.  This user has read access to the generated data dashboard
+4. superset datasets and an aurora view were created manually via the superset ui.  Ideally these would be generated as part of the superset bootstrap process.
+
+#### Superset Dataset Configuration
 
 The initial data table is based on the csv file upload.  However, I created some derived fields which were then complex to visualise.  I took the decision to create a separate view for the combined winning ball numbers:
 

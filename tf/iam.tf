@@ -108,15 +108,15 @@ resource aws_iam_role athena_access_role {
         Effect = "Allow",
         Sid = "SupersetPodAssumeRole",
         Principal = {
-          Federated = local.oidc_provider
+          Federated = module.eks.oidc_provider_arn
         }
       }
     ]
   })
 }
 
-// amend kms key policy
 
+// amend kms key policy
 
 resource aws_iam_role_policy_attachment athena_role_policy_attachment {
   policy_arn = aws_iam_policy.athena_access_policy.arn
