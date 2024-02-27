@@ -8,7 +8,7 @@ serviceAccount:
 # so rerunning this will break superset :)
 configOverrides:
   secret: |
-    SECRET_KEY = '<expunged>'
+    SECRET_KEY = '7KoL/czX0mirLo1RWJMGH4UzaDxnvMEVdGRmuysRWzYhwRAsaw4Jpv5V'
 
 # ensure packages are installed that permit superset to communicate to athena
 bootstrapScript: |
@@ -30,6 +30,8 @@ ingress:
   ingressClassName: nginx
   annotations:
     kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
     ## Extend timeout to allow long running queries.
     # nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
     # nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
