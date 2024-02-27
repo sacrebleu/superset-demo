@@ -31,9 +31,7 @@
 
 ###### Post-terraform steps
 
-1.  The EKS module creates a cluster KMS key but does not make it obvious as to how to append specific permissions to the key profile during provisioning.  I eventually removed the key creation from the eks module invocation, imported the existing resources from a prior run into terraform resources, and defined the kms key as `aws_kms_key.cluster_key` and its associated policy as  `aws_kms_key_policy.eks_cluster_policy`
-
-so that I could guarantee the creation of the required KMS permissions for `module.eks.cluster_iam_role_arn` and `aws_iam_role.athena_access_role.arn`
+1.  The EKS module creates a cluster KMS key but does not make it obvious as to how to append specific permissions to the key profile during provisioning.  I eventually removed the key creation from the eks module invocation, imported the existing resources from a prior run into terraform resources, and defined the kms key as `aws_kms_key.cluster_key` and its associated policy as  `aws_kms_key_policy.eks_cluster_policy` so that I could guarantee the creation of the required KMS permissions for `module.eks.cluster_iam_role_arn` and `aws_iam_role.athena_access_role.arn`
 
 2. Superset required a custom secret that was generated with `openssl rand 16 -base64`.  This would be more useful if it were generated automatically, but there would be a chance that it could be accidentally altered during a run; superset has a defined secret rotation process that this would then violate.  In production, I would make use of a Kubernetes External Secret linked to AWS SecretsManager for this.
 
