@@ -22,9 +22,7 @@
     $ terraform plan -out plan.out 
     $ terraform apply -plan plan.out
 
-###### Helm application provisioning and IAM role for superset service account
-
-Some values need to be set as locals e.g the cluster name and the oidc provider.  These could be derived with more work.
+###### Helm application provisioning
 
     $ cd ./helm
     $ terraform init
@@ -33,21 +31,21 @@ Some values need to be set as locals e.g the cluster name and the oidc provider.
 
 ###### Post-terraform steps
 
-Some manual configuration was necessary.
+1.  The EKS module creates a cluster KMS key but does not make it obvious as to how to append specific permissions to the key profile during provisioning.  I eventually removed the key creation from the eks module invocation, imported the existing resources from a prior run into terraform resources, and defined the kms key as `aws_kms_key.cluster_key` and its associated policy as  `aws_kms_key_policy.eks_cluster_policy`
 
-1.  There is a chicken and egg problem on the IAM roles for the superset user that I didn't have time to properly solve - namely, the kms key used for data encryption and decryption is created at eks cluster time, but the IAM role for the user is created as part of the helm setup.  It would probably be better to do IAM prior to infrastructure build but given that this was a problem that emerged while I was working on the demo, I didn't feel it was worth the time to go back and rearrange everything; the existing system is good enough for a POC.  
+so that I could guarantee the creation of the required KMS permissions for `module.eks.cluster_iam_role_arn` and `aws_iam_role.athena_access_role.arn`
 
-    Thus, the KMS key policy needs manual amendment to permit the superset athena role to make use of it and a reapplication of terraform will remove the policy block that grants the superuser role access to the relevant kms key.
+2. Superset required a custom secret that was generated with `openssl rand 16 -base64`.  This would be more useful if it were generated automatically, but there would be a chance that it could be accidentally altered during a run; superset has a defined secret rotation process that this would then violate.  In production, I would make use of a Kubernetes External Secret linked to AWS SecretsManager for this.
 
-2. Superset required a custom secret that was generated with openssl rand 16 -base64.  This would be more useful if it were generated automatically, but there would be a chance that it could be accidentally altered during a run; superset has a defined secret rotation process that this would then violate.
+3. A superset user was manaully  created alongside the admin user.  This user has read access to the generated data dashboard.  In a production system, users would be in LDAP or, preferably, a SAML-federation system like OKTA that would permit external definition of roles.  RBAC mapping could then be done between the external access control system and the internal superset roles.
 
-3. A superset user was manaully  created alongside the admin user.  This user has read access to the generated data dashboard
-4. superset datasets and an aurora view were created manually via the superset ui.  Ideally these would be generated as part of the superset bootstrap process.
+4. superset datasets were created  manually via the superset ui.  Ideally these would be generated as part of the superset bootstrap process but I didn't feel discovery of this process was a useful use of time at this stage.
+
+5. An Athena view (Detailed further below) was created manually in the AWS Athena console.
 
 #### Superset Dataset Configuration
 
 The initial data table is based on the csv file upload.  However, I created some derived fields which were then complex to visualise.  I took the decision to create a separate view for the combined winning ball numbers:
-
 
     CREATE OR REPLACE VIEW lottery_winning_numbers_merged AS
     select split_part(winning_numbers, ' ', 1) as num from lottery_numbers
@@ -60,8 +58,7 @@ The initial data table is based on the csv file upload.  However, I created some
     union all
     select split_part(winning_numbers, ' ', 5) as num from lottery_numbers
 
-this leverages sql to provide a unified list of numbers which are then more amenable
-to counting, placing into histograms etcetera.
+this leverages sql to provide a unified list of numbers which are then more amenable to counting, placing into histograms etcetera.
 
 ---
 
@@ -69,7 +66,7 @@ to counting, placing into histograms etcetera.
 
 #### 1. Wide-ranging roles were given to the project provisioning user
 
-In a normal environment, I would have either used an IAM boundary policy or spent  more time locking down the roles for the terraform user, but I am not familiar enough with Glue and Athena to guess what roles will be needed and time is short.  Therefore I have in general used the AWS provisioned roles for service users where I could, and inline IAM policies elsewhere.  All are allocated via a user-group for ease of management
+In a normal environment, I would have either used an IAM boundary policy or spent  more time locking down the roles for the terraform user, but I am not familiar enough with Glue and Athena to guess what roles will be needed and my time was limited.  Therefore I have in general used the AWS provisioned roles for service users where I could, and inline IAM policies elsewhere.  All are allocated via a user-group for ease of management
 
 #### 2. EKS as a platform
 
@@ -81,27 +78,29 @@ Given the nature of the task, I took the decision to directly provision superset
 
 #### 4. File upload via terraform
 
-Again, a real-world system would have some sort of data transform pipeline for feeding data - storing lottering numbers as a string array is not ideal.  I played with the idea of transforming the data before upload, but it wasn't clear whether that was permitted within the scope of the exercise and it would be quick to do if it became necessary.  Superset has transform functions which seem adequate on top of athena.  It's a pragmatic solution and it works well enough within the scope of the demo
+A real-world system would have some sort of data transform pipeline for feeding data - storing lottery numbers as a string array is not ideal.  I played with the idea of transforming the data before upload, but it wasn't clear whether that was permitted within the scope of the exercise and it would be quick to do if it became necessary.  Superset almost certainly has transform functions, but Superset's online documentation corpus is unreliable.  Therefore I took the decision to generate a simple `UNION ALL` view across the five ball number columns to generate a combined list of all winning lottery balls.  It's a pragmatic solution and it works well enough within the scope of the demo.
 
 ###### 5. IAM roles should be provisioned prior to build-out
 
-In an ideal world I would have a good overview of what roles were necessary and prune out those that were not.  Unfortunately, some of these services [Glue, Athena] are new to me so I'm not familiar with their required minimum credential sets.  Where possible.
-
-I've retroactively gone back to prune down iam permissions etc.
+In an ideal world I would have a good overview of what roles were necessary and prune out those that were not.  Unfortunately, some of these services e.g Glue and Athena are new to me so I'm not familiar with their required minimum credential sets.  Where possible, I've retroactively gone back to prune down iam permissions etc.
 
 ###### 6. Use of Nginx Ingress
 
-I elected to use the NginX ingress controller primarily because it provides a reliable manner to map k8s services to a classic loadbalancer (which is what is used in this case).  I use Ingresses in my day to day role and am comfortable enough with them to troubleshoot them if there are issues
+I elected to use the NginX ingress controller primarily because it provides a reliable manner to map k8s services to a classic loadbalancer (which is what I used in this case).  I use Ingresses in my day to day role and am comfortable enough with them to troubleshoot them if there are issues.
 
 ###### 7. Postgresql should be in RDS, Redis should be in Elasticache
 
 I don't like running stateful data stores in kubernetes - even with PVC backing and regional topology annotations. It makes more sense to me to keep data outside the cluster where possible, so I would prefer to put Postgresql and Redis into external services.  However, that is beyond the scope of this exercise and what is provided here is good enough for the small datasets in use.
 
+###### 8. Spot instances are cheaper but they create topology issues
+
+Because of the stateful nature of Postgresql, it requires a PersistentVolumeClaim in order to store data locally.  Unfortunately, [the initial cluster I built](https://github.com/sacrebleu/superset-demo/blob/948628d9311fd9fca5eda65d7fd8f48f41bcb04f/tf/eks.tf#L69) specified SPOT instances of a single family only, with only one instance created because of cost considerations.  When the instance was reclaimed, a replacement came up in a different AZ and the underlying volume could not be attached, leading to the system going down.  This can obviously be mitigated by widening the number of permitted instance classes in the Node Group... and by moving stateful services out of Kubernetes in the first place.
+
 #### Meditations
 
-1. superset configuration required an enormous amount of trial and error; the internet is full of bad or subtly wrong config suggestions.  What worked was a service account using irsa with the necessary permissions and providing NO FURTHER GUIDANCE to the superset system about how to connect; boto3 used the assumed role and was able (finally) to connect.  In retrospect it's obvious but it was a journey of several hours to land on a working configuration.
+1. Superset configuration required an enormous amount of trial and error; the internet is full of bad or subtly wrong config suggestions.  What worked was a service account using irsa with the necessary permissions and providing NO FURTHER GUIDANCE to the superset system about how to connect; boto3 used the assumed role and was able (finally) to connect.  In retrospect it's obvious but it was a journey of several hours to land on a working configuration.
 
-2. Being unfamiliar with superset, it was frustrating to try to work out how to display data in the way I wanted to.  I think of things like lottery ball picks in terms of the basic statistics I know, so to me histograms and gaussian curves make sense.  However, visualising them took some work, it was only late in the demo that I worked out that bar charts could with some work be configured to behave like histograms.  The 'Winning number frequency chart' demonstrates this.
+2. It was frustrating to try to work out how to get Superset to display data in the way I wanted to.  I think of things like lottery ball picks in terms of the basic statistics I know, so to me histograms and gaussian curves make sense.  However, Superset's histogram functionality is extremely limited and the bar graph functionality is also stunted.  Much of this is likely down to nuances in dataset configuration that I do not understand in the environment, but it really should not be as hard as it is to display a histogram of five buckets, with the X axis in distinct categories. Superset tutorials are sparse and often paywalled; coming from a Grafana / SQL background it is often not the most intutive UI for me.
 
 ----
 
@@ -186,20 +185,32 @@ Result: all lotteries were run during the week (specifically on Tuesdays and Fri
 
 On the statistics themselves; ball 1, ball 5 and the mega ball all seem to display sample curves that seem suspicious at first glance.  
 
-Ball 1 could be interpreted as a normal distribution that just happens to be skewed very heavily towards the lower end of the scale:
+Ball 1 could be interpreted as a normal distribution that just happens to be skewed very heavily towards the lower end of the scale, which is plausible given that the Ball 1 column contains the results of SORTED lottery number data, therefore Ball 1 will always tend to the lower end of the scale.  However, this very strong binding to the numbers 1 - 4 feels biassed.
 
 ![image: Ball 1 distribution](./images/ball-1-distribution.jpg "Ball 1 number distribution")
 
-but ball 5 on the other hand has two distinct peaks - which seems anomalous in the context of the normal curve I'd expect. 
+Ball 5 has two distinct peaks, something which seems anomalous in the context of the normal curve I'd expect.  This could be a sign of a change in the range of numbers appearing on a ball; there could be a point in the draw history where the numbers change. 
 
 ![image: Ball 5 distribution](./images/ball-5-distribution.jpg "Ball 5 number distribution")
 
-Even more strangely - the power ball is roughly twice as likely to be 20 or less than it is to be 21 or above.  
+In fact, when I dug into the numbers, it appears that the range of numbers in the Lottery has changed several times in its history:
+
+![image: Ball 5 Historical Draw Values](./images/historical-max-ball5-value.jpg "Ball 5 number historical distribution")
+
+The mega ball is roughly twice as likely to be 20 or less than it is to be 21 or above.  
 
 ![image: Mega Ball distribution](./images/mega_ball.jpg "Mega Ball number distribution")
+
+Perhaps there's a similar discontinuity in its numbers that could explain this
+
+![image: Mega Ball Historical Values](./images/mega-ball-historical-values.jpg "Mega Ball Historical Values")
+
+And yes - it seems there are several changes in the Mega Ball range over the duration of the Lottery.
 
 Finally, there's a noticeable taper towards the frequency of the upper numbers when all the balls are investigated simultaneously, with balls of value > 56 being noticeably under-represented in the overall dataset
 
 ![image: Winning Number Frequency Distribution](./images/winning-number-freqs.jpg "Winning ball number distribution")
 
-It would be very interesting to see the result distributions for the data in the order of ball drawing, rather than sorted from smallest to largest as the dataset is currently sorted.  Perhaps there is some sort of bias which would be explained from that that is obscure from this ordered data.
+But again, this will be explained by the changes in data range over the course of the Lottery's existence.  
+
+It would be very interesting to see the result distributions for the data in the order of ball drawing, rather than sorted from smallest to largest as the dataset is currently sorted, as this would also show if there was any bias in number selection.

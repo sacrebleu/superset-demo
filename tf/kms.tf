@@ -1,4 +1,4 @@
-resource "aws_kms_key" "cluster_key" {
+resource aws_kms_key cluster_key {
   enable_key_rotation = true
   tags = {
     app         = "Superset"
